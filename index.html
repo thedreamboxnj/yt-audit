@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CYBER DECK // DIAGNOSTIC TERMINAL</title>
+    <style>
+        body {
+            background-color: #0c0d1f;
+            color: #5be8f9;
+            font-family: monospace;
+            padding: 20px;
+        }
+        h2 { color: #d26cf3; }
+        #test-player-container {
+            width: 300px;
+            height: 200px;
+            border: 2px solid #5be8f9;
+            margin-bottom: 20px;
+            /* Keep it visible but small so you can see it working */
+        }
+        .log-container {
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid #d26cf3;
+            padding: 15px;
+            height: 400px;
+            overflow-y: auto;
+        }
+        .success { color: #00ff00; }
+        .error { color: #ff0044; }
+        .warning { color: #ffaa00; }
+    </style>
+</head>
+<body>
+
+    <h2>📼 PLAYLIST AUDIT IN PROGRESS...</h2>
+    <div id="test-player-container">
+        <div id="diagnostic-player"></div>
+    </div>
+    
+    <div class="log-container" id="terminal-log">
+        <div>[SYSTEM] INITIALIZING YOUTUBE API...</div>
+    </div>
+
+<script>
+    // 1. PASTE YOUR VIDEO IDS HERE
+    // You can `console.log(currentVideoIds)` from your main site to get this list.
+    const videosToTest = [
+        "dQw4w9WgXcQ", // Should play (Rick Astley)
+        "invalidID123", // Will throw Error 2
+        "F_4vNng4kHk", // A known dead/private video (for testing)
+        // Add more IDs...
+    ];
+
+    let currentIndex = 0;
+    let ytPlayer = null;
+    const failedVideos = [];
+    let timeoutTimer = null;
+
+    const logDiv = document.getElementById('terminal-log');
+
+    function log(message, type = '') {
+        const entry = document.createElement('div');
+        entry.className = type;
+        entry.innerText = `> ${message}`;
+        logDiv.appendChild(entry);
+        logDiv.scrollTop = logDiv.scrollHeight;
+    }
+
+    function initYouTubePlayer() {
+        const tag = document.createElement('script');
+        tag.src = "https://www.youtube.com/iframe_api";
+        document.head.appendChild(tag);
+
+        window.onYouTubeIframeAPIReady = () => {
+            log("[SYSTEM] API READY. STARTING TEST RUN.", "success");
+            ytPlayer = new YT.Player('diagnostic-player', {
+                width: '100%', 
+                height: '100%',
+                playerVars: { autoplay: 1, mute: 1, controls: 0 }, // Muted so it doesn't blast audio
+                events: {
+                    onReady: startAudit,
+                    onStateChange: handleStateChange,
+                    onError: handleError
+                }
+            });
+        };
+    }
+
+    function startAudit() {
+        if (videosToTest.length === 0) {
+            log("NO VIDEOS TO TEST.", "warning");
+            return;
+        }
+        testNextVideo();
+    }
+
+    function testNextVideo() {
+        if (currentIndex >= videosToTest.length) {
+            finishAudit();
+            return;
+        }
+
+        const currentId = videosToTest[currentIndex];
+        log(`TESTING [${currentIndex + 1}/${videosToTest.length}]: ${currentId}...`);
+        
+        // Load the video
+        ytPlayer.loadVideoById(currentId);
+
+        // Fail-safe timeout: if a video hangs for 5 seconds without firing an event, skip it.
+        clearTimeout(timeoutTimer);
+        timeoutTimer = setTimeout(() => {
+            log(`[TIMEOUT] Video ${currentId} took too long to load.`, "warning");
+            failedVideos.push({ id: currentId, reason: "Timeout" });
+            currentIndex++;
+            testNextVideo();
+        }, 5000);
+    }
+
+    function handleStateChange(event) {
+        // YT.PlayerState.PLAYING == 1
+        if (event.data === 1) {
+            clearTimeout(timeoutTimer);
+            log(`[SUCCESS] Video ${videosToTest[currentIndex]} is playable.`, "success");
+            
+            // Move to the next one immediately
+            currentIndex++;
+            testNextVideo();
+        }
+    }
+
+    function handleError(event) {
+        clearTimeout(timeoutTimer);
+        const currentId = videosToTest[currentIndex];
+        let errorReason = "Unknown Error";
+
+        switch(event.data) {
+            case 2: errorReason = "Invalid Video ID"; break;
+            case 5: errorReason = "HTML5 Player Error"; break;
+            case 100: errorReason = "Video Not Found / Private / Deleted"; break;
+            case 101: 
+            case 150: errorReason = "Embed Disabled by Owner"; break;
+        }
+
+        log(`[FAILED] Video ${currentId} - Error ${event.data}: ${errorReason}`, "error");
+        failedVideos.push({ id: currentId, reason: errorReason });
+
+        // Move to the next one
+        currentIndex++;
+        testNextVideo();
+    }
+
+    function finishAudit() {
+        log("==========================================");
+        log("AUDIT COMPLETE.");
+        if (failedVideos.length > 0) {
+            log(`FOUND ${failedVideos.length} DEAD LINKS:`, "error");
+            failedVideos.forEach(v => log(`ID: ${v.id} | REASON: ${v.reason}`, "error"));
+            console.log("COPY THIS ARRAY OF BAD IDS:", failedVideos.map(v => v.id));
+        } else {
+            log("ALL VIDEOS PLAYABLE. NO DEAD LINKS FOUND.", "success");
+        }
+        log("==========================================");
+    }
+
+    // Boot up
+    initYouTubePlayer();
+</script>
+</body>
+</html>
